@@ -4,62 +4,85 @@ from typing import List, Dict
 
 class DataProcessor:
     def validate_data(self, df: pd.DataFrame) -> bool:
-        required_cols = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR']
-        
-        return all(col in df.columns for col in required_cols)
-    
-    def clean_historical_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.drop_duplicates()
-        df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
-        df['result'] = df['FTR'].map({'H': 2, 'D': 1, 'A': 0})
-        
-        return df
-
-    def handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
-        pass
-
-    def create_basic_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        pass
-
-
-    def normalize_team_names(self, df: pd.DataFrame) -> pd.DataFrame:
-        team_mapping = {
-            'Man United': 'Manchester United',
-            'Man City': 'Manchester City',
-            'Leicester': 'Leicester City',
-            'Tottenham': 'Tottenham Hotspur',
-            'Newcastle': 'Newcastle United',
-            'West Ham': 'West Ham United',
-            'Brighton': 'Brighton & Hove Albion',
-            'Crystal Palace': 'Crystal Palace',
-            'Aston Villa': 'Aston Villa',
-            'Wolves': 'Wolverhampton Wanderers',
-            'Sheffield United': 'Sheffield Utd',
-            'Sheffield Utd': 'Sheffield United',
-            'Norwich': 'Norwich City',
-            'Watford': 'Watford FC',
-            'Burnley': 'Burnley FC',
-            'Leeds': 'Leeds United',
-            'Brentford': 'Brentford FC',
-            'Fulham': 'Fulham FC',
-            'Bournemouth': 'AFC Bournemouth',
-            'Luton': 'Luton Town',
-            'Nottm Forest': 'Nottingham Forest',
-            "Nott'm Forest": 'Nottingham Forest',
-            'QPR': 'Queens Park Rangers',
-            'Swansea': 'Swansea City',
-            'Cardiff': 'Cardiff City',
-            'Hull': 'Hull City',
-            'Stoke': 'Stoke City',
-            'Middlesbrough': 'Middlesbrough FC',
-            'Wigan': 'Wigan Athletic',
-            'Blackburn': 'Blackburn Rovers',
-            'Bolton': 'Bolton Wanderers',
-            'Birmingham': 'Birmingham City',
-            'Blackpool': 'Blackpool FC',
-            'Reading': 'Reading FC',
-            'Huddersfield': 'Huddersfield Town'
+        validation_result = {
+            'is_valid': True,
+            'errors': [],
+            'warnings': [],
+            'stats': {}
         }
-        df['HomeTeam'] = df['HomeTeam'].replace(team_mapping)
-        df['AwayTeam'] = df['AwayTeam'].replace(team_mapping)
-        return df
+
+        self._validate_columns(df, validation_result)
+        if not validation_result['is_valid']:
+            return validation_result
+        
+        self._validate_numeric_columns(df, validation_result)
+        self._validate_date_column(df, validation_result)
+        self._validate_score_values(df, validation_result)
+        self._validate_result_values(df, validation_result)
+        
+        self._validate_missing_values(df, validation_result)
+        self._validate_duplicate_values(df, validation_result)
+        
+        self._collect_stats(df, validation_result)
+
+        return validation_result
+    
+    def _validate_columns(self, df: pd.DataFrame, result: Dict):
+        required_columns = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR']
+
+        missing_columns = [column for column in required_columns if column not in df.columns]
+        if missing_columns:
+            result['errors'].append(f"Missing columns: {missing_columns}")
+            result['is_valid'] = False
+
+    def _validate_numeric_columns(self, df: pd.DataFrame, result: Dict):
+        numeric_columns = ['FTHG', 'FTAG']
+
+        for column in numeric_columns:
+            if column in df.columns and not pd.api.types.is_numeric_dtype(df[column]):
+                result['errors'].append(f"{column} is not numeric")
+                result['is_valid'] = False
+
+    def _validate_date_column(self, df: pd.DataFrame, result: Dict):
+        try:
+            if 'Date' in df.columns:
+                pd.to_datetime(df['Date'])
+        except:
+            result['errors'].append("Invalid date format")
+            result['is_valid'] = False
+
+    def _validate_score_values(self, df: pd.DataFrame, result: Dict):
+        for column in ['FTHG', 'FTAG']:
+            if (df[column] < 0).any():
+                result['errors'].append(f"Negative values in {column}")
+                result['is_valid'] = False
+    
+    def _validate_result_values(self, df: pd.DataFrame, result: Dict):
+        valid_results = {'H', 'D', 'A'}
+        invalid_results = set(df['FTR'].dropna().unique()) - valid_results
+
+        if invalid_results:
+            result['errors'].append(f"Invalid results: {invalid_results}")
+            result['is_valid'] = False
+
+    def _validate_missing_values(self, df: pd.DataFrame, result: Dict):
+        target_columns = ['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG', 'FTR']
+
+        null_counts = df[target_columns].isnull().sum()
+        if null_counts.any():
+            result['warnings'].append(f"Null values: {null_counts[null_counts > 0].to_dict()}")
+        
+    def _validate_duplicate_values(self, df: pd.DataFrame, result: Dict):
+        key_columns = ['Date', 'HomeTeam', 'AwayTeam']
+        
+        duplicates = df.duplicated(key_columns).sum()
+        if duplicates > 0:
+            result['warnings'].append(f"Found {duplicates} duplicate matches")
+
+    def _collect_stats(self, df: pd.DataFrame, result: Dict):
+        result['stats'] = {
+            'total_rows': len(df),
+            'unique_teams': len(set(df['HomeTeam'].unique()) | set(df['AwayTeam'].unique())),
+            'date_range': (df['Date'].min(), df['Date'].max()) if len(df) > 0 else None,
+            'null_count': df.isnull().sum().sum()
+        }
