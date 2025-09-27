@@ -50,7 +50,7 @@ class DataProcessor:
     def _validate_date_column(self, df: pd.DataFrame, result: Dict):
         try:
             if 'Date' in df.columns:
-                pd.to_datetime(df['Date'])
+                pd.to_datetime(df['Date'], errors='coerce', dayfirst=True)
         except Exception as e:
             result['errors'].append(f"Invalid date format: {str(e)}")
             result['is_valid'] = False
@@ -84,10 +84,22 @@ class DataProcessor:
             result['warnings'].append(f"Found {duplicates} duplicate matches")
 
     def _collect_stats(self, df: pd.DataFrame, result: Dict):
+        def date_range():
+            if len(df) == 0 or 'Date' not in df.columns:
+                return None
+            try:
+                dates = pd.to_datetime(df['Date'], errors='coerce', dayfirst=True).dropna()
+                return (dates.min(), dates.max()) if len(dates) > 0 else None
+            except:
+                return None
+
+        def unique_teams():
+            return len(set(df['HomeTeam'].unique()) | set(df['AwayTeam'].unique()))
+
         result['stats'] = {
             'total_rows': len(df),
-            'unique_teams': len(set(df['HomeTeam'].unique()) | set(df['AwayTeam'].unique())),
-            'date_range': (df['Date'].min(), df['Date'].max()) if len(df) > 0 else None,
+            'unique_teams': unique_teams(),
+            'date_range': date_range(),
             'null_count': df.isnull().sum().sum()
         }
 
@@ -111,7 +123,7 @@ class DataProcessor:
     def clean_date_values(self, df: pd.DataFrame) -> pd.DataFrame:
         cleaned_df = df.copy()
 
-        cleaned_df['Date'] = pd.to_datetime(cleaned_df['Date'], errors='coerce')
+        cleaned_df['Date'] = pd.to_datetime(cleaned_df['Date'], errors='coerce', dayfirst=True)
         cleaned_df = cleaned_df.dropna(subset=['Date'])
 
         return cleaned_df
